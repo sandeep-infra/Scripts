@@ -1,0 +1,29 @@
+$userIds = @(
+    "user1@example.com",
+    "user2@example.com",
+    "user3@example.com"
+)
+
+foreach ($userId in $userIds) {
+    Set-AzureADUser -ObjectId $userId -AccountEnabled $false
+    Write-Host "User '$userId' disabled."
+}
+
+=CONCATENATE("""", A1, """,")
+
+
+$userIds = @(
+    "user1@example.com",
+    "user2@example.com",
+    "user3@example.com"
+)
+
+foreach ($userId in $userIds) {
+    $user = Get-AzureADUser -Filter "userPrincipalName eq '$userId'"
+   
+    if ($user.AccountEnabled -eq $false) {
+        Write-Host "User '$userId' is disabled."
+    } else {
+        Write-Host "User '$userId' is enabled."
+    }
+}
