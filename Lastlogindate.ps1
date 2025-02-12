@@ -24,15 +24,19 @@ foreach ($user in $UPNs) {
         # Get the last sign-in date from the SignInActivity property
         $LastLoginDate = $userObject.SignInActivity.LastSignInDateTime
 
-        # Add the LastLoginDate property to the user object
-        $userObject | Add-Member -MemberType NoteProperty -Name LastLoginDate -Value $LastLoginDate -Force
+        # Create a new custom object with the required properties
+        $customUserObject = [PSCustomObject]@{
+            DisplayName    = $userObject.DisplayName
+            UserPrincipalName = $userObject.UserPrincipalName
+            LastLoginDate  = $LastLoginDate
+        }
 
-        # Collect the user object with the additional property
-        $UsersWithSignInActivity += $userObject
+        # Collect the custom user object
+        $UsersWithSignInActivity += $customUserObject
     } else {
         Write-Output "User not found: $userPrincipalName"
     }
 }
 
-# Display the users along with their last sign-in dates in a table format
-$UsersWithSignInActivity | Format-Table DisplayName, LastLoginDate
+# Export the users along with their last sign-in dates to a CSV file
+$UsersWithSignInActivity | Export-Csv -Path "C:\Users\sysvl-samed15\lastlogin.csv" -NoTypeInformation -Force
