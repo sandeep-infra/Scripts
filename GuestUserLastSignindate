@@ -1,0 +1,34 @@
+Connect-MgGraph -Scopes "AuditLog.Read.All"
+
+# Define the properties to fetch, which includes SignInActivity
+$Properties = "DisplayName,UserPrincipalName,SignInActivity,UserType"
+
+# Initialize an empty array to collect guest user objects with sign-in activity
+$GuestUsersWithSignInActivity = @()
+
+
+$sixMonthsAgo = (Get-Date).AddMonths(-6)
+
+
+$guestUsers = Get-MgUser -Filter "UserType eq 'Guest'" -Property $Properties -All
+
+
+foreach ($userObject in $guestUsers) {
+    # Get the last sign-in date from the SignInActivity property
+    $LastLoginDate = $userObject.SignInActivity.LastSignInDateTime
+
+    # Check if the user hasn't logged in for the last 6 months
+    if ($LastLoginDate -eq $null -or $LastLoginDate -lt $sixMonthsAgo) {
+        # Create a new custom object with the required properties
+        $customGuestUserObject = [PSCustomObject]@{
+            DisplayName     = $userObject.DisplayName
+            UserPrincipalName = $userObject.UserPrincipalName
+            LastLoginDate   = $LastLoginDate
+        }
+
+        # Collect the custom guest user object
+        $GuestUsersWithSignInActivity += $customGuestUserObject
+    }
+}
+
+$GuestUsersWithSignInActivity | Export-Csv -Path "C:\Users\sysvl-samed15\lastlogin_guests.csv" -NoTypeInformation -Force
