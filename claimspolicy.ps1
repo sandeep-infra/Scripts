@@ -76,3 +76,6 @@ $policyId = "12b86b96-b35d-4796-884c-ace8fee73a4b"  # Replace with actual Policy
 # Remove the policy assignment
 Invoke-MgGraphRequest -Method DELETE `
     -Uri "/beta/servicePrincipals/$servicePrincipalId/claimsMappingPolicies/$policyId/`$ref"
+
+##KBs:
+    #Ref: https://learn.microsoft.com/en-us/entra/identity-platform/reference-claims-customization
