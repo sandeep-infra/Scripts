@@ -1,0 +1,16 @@
+$tenantId = "<Your-Tenant-ID>"
+$clientId = "<Your-Client-ID>"
+$clientSecret = "<Your-Client-Secret>"
+$resource = "https://graph.microsoft.com"
+
+$tokenEndpoint = "https://login.microsoftonline.com/$tenantId/oauth2/v2.0/token"
+$body = @{
+    "client_id" = $clientId
+    "scope" = "$resource/.default"
+    "client_secret" = $clientSecret
+    "grant_type" = "client_credentials"
+}
+
+$response = Invoke-RestMethod -Uri $tokenEndpoint -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
+$accessToken = $response.access_token
+Write-Output "Access Token: $accessToken"
