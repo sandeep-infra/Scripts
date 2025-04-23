@@ -1,0 +1,24 @@
+https://graph.microsoft.com/v1.0/servicePrincipals/{id}-App reg objectId(perms-owner will be added to this app)/owners/$ref
+Content-type: application/json
+
+{
+    "@odata.id": "https://graph.microsoft.com/v1.0/directoryObjects/{id}  (SP-ObjectId-this will be the owner for other app)"
+}
+
+https://developer.microsoft.com/en-us/graph/graph-explorer
+
+servicePrincipal: Add owner - Microsoft Graph v1.0 | Microsoft Learn - Add owner
+
+For App reg: https://graph.microsoft.com/v1.0/applications/7e399b37-bc04-4d16-ac0e-8ec0ce96f915/owners/$ref
+
+For App reg owner setting: Keep post req field-App reg objjectId
+Below one , same ent app objectId
+
+For Ent App: https://graph.microsoft.com/v1.0/servicePrincipals/objectId(perms-owner will be added to this app)/owners/$ref
+
+For Ent app owner setting- keep both SP objectIds
+
+
+-------------------------------------------------------------
+
+Method- POST
