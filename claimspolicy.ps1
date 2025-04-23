@@ -68,5 +68,5 @@ Invoke-MgGraphRequest -Method DELETE `
 
 ##KBs:
     #Ref: https://learn.microsoft.com/en-us/entra/identity-platform/reference-claims-customization
-    https://learn.microsoft.com/en-us/entra/identity-platform/claims-customization-powershell
+   # https://learn.microsoft.com/en-us/entra/identity-platform/claims-customization-powershell
     
