@@ -1,0 +1,369 @@
+<#
+
+.SYNOPSIS 
+
+    Fetch the details of users or groups added to MFA groups
+ 
+.DESCRIPTION
+
+    This script will run every four hours and do the following
+
+        Connect Entra D
+
+        Get the details of users or groups added to MFA related groups
+
+        Format to a list
+
+        Send an email to the owners of the group with the details in a table
+
+.REQUIREMENTS
+
+    Read permissions on Azure Active Directory
+
+    SMTP server details
+
+    Entra ID module
+ 
+.PARAMETERS
+
+    Application ObjectID
+
+
+.NOTES
+
+    Name: Get-AuditLogs-Apps-Groups
+
+    Email : santhosh.durgam@inter.ikea.com
+
+    DateCreated: 29th Sep 2023
+
+    Updated: 5th Oct 2023 - Added code to distinguish user/groups and to extract target value.
+
+             26th Mar 2025 - Removed deprecated Entra Graph and added Entra modules.
+
+ 
+.EXAMPLE
+
+ 
+#>
+ 
+$ErrorActionPreference = "SilentlyContinue"
+ 
+ 
+$ErrorActionPreference = "SilentlyContinue"
+ 
+Function EntraConnect
+
+    {
+
+        $ErrorActionPreference = "SilentlyContinue"
+
+        Import-Module Microsoft.Entra.DirectoryManagement
+ 
+        $tenantID = "a33c6ac4-a52e-45c5-af07-b972df9bd004"
+
+        $ClientID       = "794fae4c-8655-4c44-b962-16f339e6430e"
+
+ 
+        If((Get-EntraTenantDetail -Property ID -ErrorAction SilentlyContinue).id -like $tenantID )  {"Already Connected to OneIIG "} 
+
+            else 
+
+                {
+
+                    "Not Connected to OneIIG, connecting now.."
+
+                    $connectParams = @{
+
+                    TenantId = $tenantID
+
+                    ApplicationId = $ClientID
+
+                    CertificateThumbprint = "C521878B223C67F206AB78EBDF0D75AAE00A52C2"
+
+                }
+ 
+                    Connect-Entra @connectParams -NoWelcome
+
+            If((Get-EntraTenantDetail -Property ID).id -like $tenantID) {"Successfully Connected to OneIIG "}
+
+            else {"Error!!  Unable to Connect to OneIIG"}
+
+        }
+
+    }
+ 
+EntraConnect
+ 
+Clear-Variable target,targetType,initiatedby,detail,details,objectID -ErrorAction SilentlyContinue
+ 
+$objectIDs = '9baab460-5943-4723-9365-8ac2629e5ad0','96552bd9-c872-4ebd-8ac0-09c396537f8d'
+
+#$objectIDs = '87302536-7d20-4e5f-9b38-74b32b74fa4a'
+
+#$objectIDs = 'a2b307aa-da70-4ea7-9b3e-e679327cd9b2','9baab460-5943-4723-9365-8ac2629e5ad0','96552bd9-c872-4ebd-8ac0-09c396537f8d','87302536-7d20-4e5f-9b38-74b32b74fa4a'
+
+ 
+$output = @()
+
+$PastHours = 4
+
+$PastPeriod = "{0:s}" -f (Get-Date).AddHours(-($PastHours)) + "Z"
+
+$CurrentDate = "{0:s}" -f (Get-Date) + "Z"
+ 
+ 
+$addUser = "Add app role assignment grant to user"
+
+$addGroup = "Add app role assignment to group"
+
+$RemoveUser = "Remove app role assignment from user"
+
+$RemoveGroup = "Remove app role assignment from group"
+
+$AddOwner = "Add owner to service principal"
+
+$RemoveOwner = "Remove owner from service principal"
+
+$addToGroup = "Add member to group"
+
+$RemoveFroEntraroup = "Remove member from group"
+
+$AddOwnerGroup = "Add owner to group"
+
+$RemoveOwnerGroup = "Remove owner from group"
+ 
+ 
+Foreach($objectID in $objectIDs)
+
+    {
+
+        $details +=
+
+            Get-EntraAuditDirectoryLog -Filter "((activityDisplayName eq '$addToGroup' or activityDisplayName eq '$RemoveFroEntraroup' or `
+
+            activityDisplayName eq '$AddOwnerGroup' or activityDisplayName eq '$RemoveOwnerGroup') `
+
+            and targetResources/any (t:t/id eq '$ObjectID')) `
+
+            and (activityDateTime ge $PastPeriod and activityDateTime le $CurrentDate)"
+
+    }
+ 
+ 
+Foreach($detail in $details)
+
+    {
+
+        $initiatedby = 
+
+            if($detail.InitiatedBy.User.UserPrincipalName) 
+
+                { 
+
+                    $detail.InitiatedBy.User.UserPrincipalName 
+
+                } 
+
+            elseif($detail.InitiatedBy.App) 
+
+                { 
+
+                    $detail.InitiatedBy.App.DisplayName
+
+                } 
+
+            else
+
+                {"No Initiated By Information"}
+ 
+               #Get-EntraServicePrincipal -ServicePrincipalId '41d466c8-4113-41d0-a459-3ecc801501c4'
+
+        #########
+
+        $target =
+
+            if($detail.ActivityDisplayName -match "group")
+
+                { 
+
+                    Get-EntraGroup -GroupId $detail.TargetResources.ID[1] | Select-Object -ExpandProperty DisplayName 
+
+                }
+
+            elseif($detail.ActivityDisplayName -match "user")
+
+                {
+
+                    $detail.TargetResources.userprincipalName[1]
+
+                }
+
+            elseif($detail.ActivityDisplayName -match "owner")
+
+                {
+
+                    $detail.TargetResources.userprincipalName[0]
+
+                }
+
+            else
+
+                {
+
+                    "No target"
+
+                }
+
+        ########
+
+        $Type =
+
+            if($detail.ActivityDisplayName -match "group")
+
+                { 
+
+                    $detail.TargetResources.Type[1]
+
+                }
+
+            elseif($detail.ActivityDisplayName -match "user")
+
+                {
+
+                    $detail.TargetResources.type[1]
+
+                }
+
+            elseif($detail.ActivityDisplayName -match "owner")
+
+                {
+
+                    $detail.TargetResources.type[0] 
+
+                }
+
+            else
+
+                {
+
+                    "No target"
+
+                }
+
+        $target = if($detail.TargetResources.userprincipalname[0]) { $detail.TargetResources.userprincipalname[0] }
+
+                    else {$detail.TargetResources.DisplayName[0]}
+
+        $targetType = $detail.TargetResources.type[0]
+
+        $output += New-Object PSObject -Property ([ordered]@{"Activity" = $detail.ActivityDisplayName;
+
+        "Group Name" = (Get-EntraGroup -GroupId $objectID).DisplayName;
+
+        "Initiated By" = $initiatedby; 
+
+        "Target Type" = $targetType; 
+
+        "Target Value" = $target
+
+        #"Operation Type" = $detail.OperationType;
+
+        "Result" = $detail.Result;
+
+        "Date And Time" = $detail.ActivityDateTime})
+
+    }
+ 
+ 
+ 
+Function SendMail
+
+{
+ 
+# Convert the output to an HTML table
+
+$table = $output | ConvertTo-Html -Fragment
+ 
+# Create the email body
+
+$body1 = @"
+<html>
+<head>
+<style>
+
+    table {
+
+        border-collapse: collapse;
+
+    }
+
+    th, td {
+
+        border: 1px solid black;
+
+        padding: 4px;
+
+        font-size: 12px;
+
+        color:Gray;
+
+        background: #EAF0F6;
+
+    }
+</style>
+</head>
+<body style="font-family:verdana; color:Gray; font-size: 16px;">
+<h3>MFA Groups Changes</h3>
+
+$table
+</body>
+</html>
+
+"@
+ 
+# Send the email
+
+$smtpServer = "smtp-relay.inter-ikea.com"
+
+$cc = "santhosh.durgam@inter.ikea.com"
+
+$from = "iam.service.cbf@inter.ikea.com"
+
+$to = "iam.service.oneiig@inter.ikea.com","bernard.dagher@inter.ikea.com","amit.puri@inter.ikea.com"
+ 
+$subject = "MFA Group Changes"
+
+Write-Host "SENT"
+
+$body1 | Out-File C:\temp\body26.html
+
+Send-MailMessage -SmtpServer $smtpServer -From $from -To $to -Cc $cc -Subject $subject -Body $body1 -BodyAsHtml
+ 
+}
+ 
+                            
+
+if($output -notlike $null)
+
+    {
+
+        SendMail
+
+    }
+
+else
+
+    {
+
+        "Do Nothing"
+
+    }                        
+ 
+ 
+ 
+ 
+ 
+            
+
+ 
