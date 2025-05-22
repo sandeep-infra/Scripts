@@ -32,3 +32,62 @@ foreach ($userObject in $guestUsers) {
 }
 
 $GuestUsersWithSignInActivity | Export-Csv -Path "C:\Users\sysvl-samed15\lastlogin_guests.csv" -NoTypeInformation -Force
+
+
+-----------------------------------------------------------------------------------------------------------------------------------
+## Covers Non-interactive too
+Connect-MgGraph -Scopes "User.Read.All", "AuditLog.Read.All", "Directory.Read.All"
+ 
+# Define properties to fetch
+$Properties = "DisplayName,UserPrincipalName,SignInActivity,UserType,ExternalUserState,CreatedDateTime,Id"
+ 
+# Initialize array for guest user data
+$GuestUsersWithSignInActivity = @()
+ 
+# Time thresholds
+$sixMonthsAgo = (Get-Date).AddMonths(-6)
+$threeMonthsAgo = (Get-Date).AddMonths(-3)
+ 
+# Get all guest users
+$guestUsers = Get-MgUser -Filter "UserType eq 'Guest'" -Property $Properties -All
+ 
+# Get non-interactive sign-ins for all users (last 6 months)
+$nonInteractiveSignIns = Get-MgAuditLogSignIn -Filter "tokenIssuerType eq 'AzureAD'" -All |
+    Where-Object { $_.CreatedDateTime -gt $sixMonthsAgo } |
+    Group-Object -Property UserId
+ 
+foreach ($userObject in $guestUsers) {
+    # Get last interactive login
+    $lastInteractive = $userObject.SignInActivity.LastSignInDateTime
+ 
+    # Get last non-interactive login
+    $lastNonInteractive = $nonInteractiveSignIns |
+        Where-Object { $_.Name -eq $userObject.Id } |
+        ForEach-Object { $_.Group.CreatedDateTime | Sort-Object -Descending | Select-Object -First 1 }
+ 
+    # Determine most recent activity
+    $lastActivity = @($lastInteractive, $lastNonInteractive) | Sort-Object -Descending | Select-Object -First 1
+ 
+    # Check if ALL activity is older than 6 months
+    if (($lastActivity -eq $null) -or ($lastActivity -lt $sixMonthsAgo)) {
+        # Check pending invitations
+        $PendingOver3Months = $userObject.ExternalUserState -eq 'PendingAcceptance' -and 
+                            $userObject.CreatedDateTime -lt $threeMonthsAgo
+ 
+        # Create custom object
+        $customGuestUserObject = [PSCustomObject]@{
+            DisplayName     = $userObject.DisplayName
+            UserPrincipalName = $userObject.UserPrincipalName
+            LastInteractive = $lastInteractive
+            LastNonInteractive = $lastNonInteractive
+            InvitationPendingOver3Months = if ($PendingOver3Months) { "Yes" } else { "No" }
+            InvitationSentDate = $userObject.CreatedDateTime
+            UserState       = $userObject.ExternalUserState
+        }
+ 
+        $GuestUsersWithSignInActivity += $customGuestUserObject
+    }
+}
+ 
+# Export results
+$GuestUsersWithSignInActivity | Export-Csv -Path "C:\Users\sysvl-samed15\lastlogin_guests.csv" -NoTypeInformation -Force
