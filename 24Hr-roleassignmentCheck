@@ -1,0 +1,111 @@
+#Requires -Module Microsoft.Graph.Identity.Governance
+#Requires -Module Microsoft.Graph.Users
+#Requires -Module Microsoft.Graph.Groups
+#Requires -Module ImportExcel
+
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$GroupId
+)
+
+# Set threshold time (last 24 hours)
+$thresholdTime = (Get-Date).ToUniversalTime().AddHours(-24).ToString("o")
+Write-Host "Checking role assignments since: $thresholdTime (UTC)" -ForegroundColor Cyan
+
+# Connect to Microsoft Graph with required permissions
+Connect-MgGraph -Scopes "RoleManagement.Read.Directory", "User.Read.All", "GroupMember.Read.All", "AuditLog.Read.All"
+
+try {
+    # Retrieve group members (users only)
+    Write-Host "Fetching group members..." -ForegroundColor Cyan
+    $members = Get-MgGroupMember -GroupId $GroupId -All | Where-Object { $_.AdditionalProperties['@odata.type'] -eq '#microsoft.graph.user' }
+
+    if (-not $members) {
+        Write-Host "No user members found in the group." -ForegroundColor Yellow
+        exit
+    }
+
+    # Extract user IDs
+    $memberIds = $members.Id
+    Write-Host "Found $($memberIds.Count) direct group members." -ForegroundColor Cyan
+
+    # Optimize user details retrieval using batch processing
+    $batchSize = 500
+    $userMap = @{}
+    for ($i = 0; $i -lt $memberIds.Count; $i += $batchSize) {
+        $batchIds = $memberIds[$i..($i + $batchSize - 1)] -join "','"
+        $batchUsers = Get-MgUser -Filter "id in ('$batchIds')" -Property id, userPrincipalName -All -ErrorAction SilentlyContinue
+        
+        foreach ($user in $batchUsers) {
+            $userMap[$user.Id] = $user.UserPrincipalName
+        }
+    }
+
+    # Retrieve recent role assignments (last 24 hours)
+    Write-Host "Fetching role assignments since $thresholdTime..." -ForegroundColor Cyan
+    $filter = "startDateTime ge $thresholdTime"
+
+    $recentAssignments = @()
+    $recentAssignments += Get-MgRoleManagementDirectoryRoleEligibilityScheduleInstance -Filter $filter -All -ErrorAction Stop | 
+        Select-Object PrincipalId, RoleDefinitionId, @{Name='AssignmentType'; Expression={'Eligible'}}, StartDateTime, EndDateTime
+
+    $recentAssignments += Get-MgRoleManagementDirectoryRoleAssignmentScheduleInstance -Filter $filter -All -ErrorAction Stop | 
+        Select-Object PrincipalId, RoleDefinitionId, @{Name='AssignmentType'; Expression={'Active'}}, StartDateTime, EndDateTime
+
+    if (-not $recentAssignments) {
+        Write-Host "No role assignments found in the last 24 hours." -ForegroundColor Yellow
+        exit
+    }
+    Write-Host "Retrieved $($recentAssignments.Count) role assignments." -ForegroundColor Cyan
+
+    # Filter assignments for group members
+    Write-Host "Filtering assignments for group members..." -ForegroundColor Cyan
+    $groupAssignments = $recentAssignments | Where-Object { $_.PrincipalId -in $memberIds }
+
+    if (-not $groupAssignments) {
+        Write-Host "No recent role assignments for group members." -ForegroundColor Yellow
+        exit
+    }
+
+    # Retrieve role details in batch
+    Write-Host "Fetching role details..." -ForegroundColor Cyan
+    $roleIds = $groupAssignments.RoleDefinitionId | Select-Object -Unique
+    $roleMap = @{}
+    foreach ($roleId in $roleIds) {
+        try {
+            $role = Get-MgRoleManagementDirectoryRoleDefinition -UnifiedRoleDefinitionId $roleId -Property DisplayName -ErrorAction Stop
+            $roleMap[$roleId] = $role.DisplayName
+        } catch {
+            $roleMap[$roleId] = "Unknown Role ($roleId)"
+        }
+    }
+
+    # Compile results
+    Write-Host "Compiling results..." -ForegroundColor Cyan
+    $results = @()
+    foreach ($assignment in $groupAssignments) {
+        $upn = if ($userMap.ContainsKey($assignment.PrincipalId)) {
+            $userMap[$assignment.PrincipalId]
+        } else {
+            "Unknown (ID: $($assignment.PrincipalId))"
+        }
+        
+        $results += [PSCustomObject]@{
+            UserId         = $assignment.PrincipalId
+            UPN            = $upn
+            RoleName       = $roleMap[$assignment.RoleDefinitionId]
+            AssignmentType = $assignment.AssignmentType
+            StartDateTime  = $assignment.StartDateTime
+            EndDateTime    = $assignment.EndDateTime
+        }
+    }
+
+    # Export results to Excel
+    $ExcelFilePath = "C:\Users\sande\OneDrive\data-inout-PS\PIM_Role_Assignments_Last24Hours.xlsx"
+    $results | Export-Excel -Path $ExcelFilePath -AutoSize -FreezeTopRow -TableName "RoleAssignments"
+
+    Write-Host "Results exported to $ExcelFilePath" -ForegroundColor Green
+
+} catch {
+    Write-Error "Critical error: $_"
+}
