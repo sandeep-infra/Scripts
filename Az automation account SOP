@@ -1,0 +1,105 @@
+SOP: Azure Automation for App Registration Secret/Certificate Expiry Alerts
+1. Purpose
+This SOP describes the setup and operation of an automated solution that retrieves Azure App Registrations with secrets/certificates expiring within 30 days and sends alert emails to respective application owners.
+The objective is to proactively notify owners to renew credentials and avoid service disruptions.
+
+2. Scope
+Applies to Azure Active Directory (Entra ID) app registrations.
+Includes client secrets and certificates associated with app registrations.
+Notifications are sent via Azure Communication Services (ACS) email channel.
+Runbook hosted on Azure Automation Account (PowerShell 7.4).
+3. Pre-requisites
+Azure Automation Account
+
+Runtime: PowerShell 7.4
+Required Graph SDK modules imported (e.g., Microsoft.Graph.Applications, Microsoft.Graph.Identity.DirectoryManagement, Microsoft.Graph.Authentication).
+Permissions
+
+Managed Identity of Automation Account enabled.
+Assigned appropriate Graph API permissions (e.g., Application.Read.All, Directory.Read.All).
+Admin consent granted.
+Azure Communication Services (ACS)
+
+Email channel configured with verified sender email address.
+Connection string securely stored in Automation Account variables or Key Vault.
+App Owner Metadata
+
+Ensure application owners are properly populated in App Registration Owners property.
+Owners’ email addresses must be valid.
+4. Solution Architecture
+Automation Account Runbook (PowerShell 7.4):
+
+Connects to Graph using Managed Identity.
+Queries App Registrations for secrets/certificates expiring in the next 30 days.
+Extracts details (App Name, App ID, Expiry Date, Owner(s)).
+Notification Mechanism:
+
+Generates an email body with expiring credential details.
+Sends personalized alerts to application owners using ACS.
+Scheduling:
+
+Runbook scheduled daily/weekly depending on policy.
+Logs stored in Automation Account for audit.
+5. Step-by-Step Setup
+5.1 Automation Account
+Create an Azure Automation Account.
+Enable System-assigned Managed Identity.
+Import required Graph PowerShell modules (Microsoft.Graph.*).
+5.2 Permissions
+In Entra ID → App Registrations → Enterprise Applications:
+Assign necessary API permissions to the Automation Account’s Managed Identity.
+Grant Admin Consent.
+5.3 Runbook Creation
+Create a Runbook with type = PowerShell 7.4.
+Add script to:
+Authenticate via Managed Identity (Connect-MgGraph).
+Retrieve App Registrations with credentials expiring within 30 days.
+Collect owners’ emails.
+Format results into an HTML table for email.
+Call ACS email service.
+5.4 Azure Communication Service Setup
+Deploy ACS resource in Azure.
+Configure email channel.
+Store ACS connection string in Automation Account variables or Azure Key Vault.
+5.5 Scheduling
+Create a Schedule in Automation Account (e.g., daily 08:00 UTC).
+Link schedule to the Runbook.
+6. Runbook Workflow
+Start → Authenticate to Graph (Managed Identity).
+Query → Get App Registrations with secrets/certs expiring in 30 days.
+Validate → Ensure owner details exist.
+Compose → Build email body (App Name, AppID, Expiry Date, Owner).
+Send → ACS email to app owners.
+Log → Success/failure events logged in Automation Account.
+7. Sample Email Output
+Subject: ⚠️ App Registration Secret/Certificate Expiry Alert
+Body:
+
+Dear [Owner],
+
+The following credentials are expiring within 30 days:
+
+Application: Contoso-API  
+App ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx  
+Credential Type: Client Secret  
+Expiry Date: 15-Sep-2025  
+
+Please renew credentials before expiry to avoid downtime.
+
+Regards,  
+IAM Automation Team
+8. Monitoring & Maintenance
+Review Automation Account job history regularly.
+Update Graph SDK modules periodically.
+Validate ACS sender reputation and delivery.
+Ensure app owners list is up to date.
+Rotate ACS connection string/credentials as per security policy.
+9. Troubleshooting
+Issue: Owners not receiving email → Verify app owners field in App Registration.
+Issue: Runbook fails to authenticate → Check Managed Identity and Graph permissions.
+Issue: Emails blocked → Confirm ACS sender domain is verified.
+Issue: Missing apps in report → Ensure script includes both client secrets and certificates query.
+10. Version Control
+Version	Date	Author	Changes
+1.0	02-Sep-2025	[Your Name]	Initial SOP
+Would you like me to also embed a sample PowerShell runbook script into this doc (with placeholders for ACS connection string etc.), so the SOP becomes fully end-to-end?
