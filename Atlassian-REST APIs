@@ -52,3 +52,6 @@ Value: application/json
 Step 4. Send
  
 Click Send and you’ll get the same result as that curl.
+
+
+##Ref: https://www.ravisagar.in/courses/mastering-confluence-rest-api
