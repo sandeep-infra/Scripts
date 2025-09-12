@@ -1,0 +1,54 @@
+For Basic Auth,
+
+Generate API token from "https://id.atlassian.com">Account settings>Security>Create/manage API tokens
+
+##
+Your curl:
+ 
+curl --request GET \
+  --url 'https://your-domain.atlassian.net/rest/api/3/issue/TEST-123' \
+  --user 'your-email@example.com:your_api_token' \
+  --header 'Accept: application/json'
+ 
+Step 1. Set the Method and URL
+ 
+In Postman, choose GET.
+ 
+Paste this into the URL field:
+ 
+https://your-domain.atlassian.net/rest/api/3/issue/TEST-123
+ ---
+ 
+Step 2. Authentication
+ 
+That --user email:apitoken means Basic Auth.
+ 
+In Postman:
+ 
+Go to the Authorization tab.
+ 
+Choose Basic Auth.
+ 
+Enter:
+ 
+Username = your Atlassian email
+ 
+Password = your Atlassian API token
+--- 
+Step 3. Headers
+ 
+That --header 'Accept: application/json' → is just a header.
+ 
+In Postman:
+ 
+Go to the Headers tab.
+ 
+Add:
+ 
+Key: Accept
+Value: application/json
+---
+ 
+Step 4. Send
+ 
+Click Send and you’ll get the same result as that curl.
