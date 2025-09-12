@@ -3,6 +3,7 @@ For Basic Auth,
 Generate API token from "https://id.atlassian.com">Account settings>Security>Create/manage API tokens.
 
 ##https://inter-ikea.atlassian.net/wiki/rest/api/content
+https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-like/#api-group-like
 
 ##
 Your curl:
