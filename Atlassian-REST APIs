@@ -1,6 +1,8 @@
 For Basic Auth,
 
-Generate API token from "https://id.atlassian.com">Account settings>Security>Create/manage API tokens
+Generate API token from "https://id.atlassian.com">Account settings>Security>Create/manage API tokens.
+
+##https://inter-ikea.atlassian.net/wiki/rest/api/content
 
 ##
 Your curl:
