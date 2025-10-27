@@ -27,3 +27,61 @@ foreach ($userId in $userIds) {
         Write-Host "User '$userId' is enabled."
     }
 }
+
+---------------------------------------------------------------------------------------------------------------
+
+##Disable users
+
+function Disable-GuestUsers {
+    # Path to the CSV file with guest user email addresses
+    $csvPath = "C:\Users\sysvl-samed15\Guest_User_AutTest.csv"
+    
+    # Import guest user emails from CSV
+    $guestUsers = Import-Csv -Path $csvPath
+
+    # Loop through each guest user
+    foreach ($user in $guestUsers) {
+        try {
+            # Get the user by email
+            $guestUser = Get-MgUser -Filter "UserPrincipalName eq '$($user.Email)'"
+
+            if ($guestUser) {
+                # Disable the account using -BodyParameter
+                $params = @{
+                    accountEnabled = $false
+                }
+                Update-MgUser -UserId $guestUser.Id -BodyParameter $params
+                Write-Host "Disabled guest user: $($user.Email)"
+            } else {
+                Write-Warning "Guest user not found: $($user.Email)"
+            }
+        } catch {
+            Write-Error "Failed to update status for user: $($user.Email). Error: $_"
+        }
+    }
+}
+
+# Disable guest users
+Disable-GuestUsers
+
+
+--------------------------------------------------------------
+## Delete Users
+
+
+$users = Import-Csv -Path "C:\Users\sysvl-samed15\UPN.csv"
+# Iterate over each user in the CSV and remove them 
+
+foreach ($user in $users)
+ {     
+ 
+ try {        
+  Remove-MgUser -UserId $user.UserPrincipalName       
+   
+  Write-Host "Deleted user: $($user.UserPrincipalName)"     
+  
+  } 
+  catch {  
+  Write-Host "Failed to delete user: $($user.UserPrincipalName). Error: $_"     }
+  
+   }
