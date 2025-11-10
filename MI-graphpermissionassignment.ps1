@@ -64,3 +64,25 @@ foreach ($PermissionName in $PermissionNames) {
     }
 }
 
+----------------------------------------------------------------------------------------------------------
+
+##Remove
+
+$MSI = Get-MgServicePrincipal -Filter "displayName eq '$DisplayNameOfMSI'"
+Start-Sleep -Seconds 10
+ 
+# Get the Microsoft Graph Service Principal
+$GraphServicePrincipal = Get-MgServicePrincipal -Filter "appId eq '$GraphAppId'"
+ 
+foreach ($PermissionName in $PermissionNames) {
+    # Find the AppRole that matches the required PermissionName
+    $AppRole = $GraphServicePrincipal.AppRoles | `
+        Where-Object { $_.Value -eq $PermissionName -and $_.AllowedMemberTypes -contains "Application" }
+ 
+    # Find the AppRoleAssignment by filtering AppRoleId and ServicePrincipalId
+    $AppRoleAssignment = Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $MSI.Id | `
+        Where-Object { $_.AppRoleId -eq $AppRole.Id -and $_.ResourceId -eq $GraphServicePrincipal.Id }
+ 
+    # Remove the AppRoleAssignment to revoke admin consent
+    Remove-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $MSI.Id -AppRoleAssignmentId $AppRoleAssignment.Id
+}
