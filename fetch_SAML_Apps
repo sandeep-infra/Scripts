@@ -1,0 +1,10 @@
+# Connect to Microsoft Graph
+Connect-MgGraph -Scopes "Application.Read.All"
+
+# Fetch service principals using advanced query parameters
+$OidcApps = Get-MgServicePrincipal -Filter "preferredSingleSignOnMode eq 'saml'" -CountVariable CountVar -ConsistencyLevel eventual -All
+
+$csvPath = "C:\Users\sande\OneDrive\data-inout-PS\samlapps.csv"
+
+# Display the results
+$OidcApps | Select-Object Id, DisplayName, ServicePrincipalType, PreferredSingleSignOnMode, SignInAudience | Export-Csv -Path $csvPath -NoTypeInformation -Force
