@@ -1,0 +1,202 @@
+import-module microsoft.Graph.authentication
+Import-Module Microsoft.Graph.Reports
+Import-Module Microsoft.Graph.Users
+
+Connect-MgGraph -Identity -NoWelcome
+$sixMonthsAgo = (Get-Date).AddMonths(-6).ToUniversalTime()
+$threeMonthsAgo = (Get-Date).AddMonths(-3).ToUniversalTime()
+$filterDate = $sixMonthsAgo.ToString("yyyy-MM-ddTHH:mm:ssZ")
+
+# --- 1. Fetch non-interactive sign-ins ---
+Write-Output "Fetching non-interactive sign-ins..."
+$nonInteractiveSignIns = Get-MgAuditLogSignIn -Filter "isInteractive eq false and createdDateTime ge $filterDate" -All `
+    | Group-Object -Property UserId -AsHashTable
+
+# --- 2. Retrieve guest users (include Mail & OtherMails) ---
+Write-Output "Retrieving guest users..."
+$guestUsers = Get-MgUser -Filter "UserType eq 'Guest'" `
+    -Property "DisplayName,UserPrincipalName,Mail,OtherMails,SignInActivity,UserType,ExternalUserState,CreatedDateTime,Id,AccountEnabled" -All
+
+# --- 3. Process guest users ---
+Write-Output "Processing $($guestUsers.Count) guest users..."
+$GuestUsersWithSignInActivity = foreach ($user in $guestUsers) {
+    $lastInteractive = $user.SignInActivity.LastSignInDateTime
+    # safely check for non-interactive logs
+    $lastNonInteractive = $null
+    if ($nonInteractiveSignIns -and $nonInteractiveSignIns.ContainsKey($user.Id)) {
+        $lastNonInteractive = $nonInteractiveSignIns[$user.Id] |
+            Sort-Object CreatedDateTime -Descending |
+            Select-Object -First 1 -ExpandProperty CreatedDateTime
+    }
+    $lastActivity = ($lastInteractive, $lastNonInteractive | Sort-Object -Descending | Select-Object -First 1)
+    if (($null -eq $lastActivity) -or ($lastActivity -lt $sixMonthsAgo)) {
+        # --- Get Manager ---
+        $managerObj = $null
+        try {
+            $managerObj = Invoke-MgGraphRequest -Method GET `
+                -Uri "https://graph.microsoft.com/v1.0/users/$($user.Id)/manager"
+        } catch { }
+        $managerEmail = if ($managerObj) { $managerObj.mail } else { "" }
+        # --- Get Sponsors ---
+        $sponsorObj = $null
+        try {
+            $sponsorObj = Invoke-MgGraphRequest -Method GET `
+                -Uri "https://graph.microsoft.com/v1.0/users/$($user.Id)/sponsors"
+        } catch { }
+        $sponsorEmails = if ($sponsorObj.value) {
+            ($sponsorObj.value | ForEach-Object { if ($_.mail) { $_.mail } else { $_.userPrincipalName } }) -join "; "
+        } else { "" }
+        # --- Guest Email & Domain ---
+        if ($user.Mail) {
+            $guestEmail = $user.Mail
+        }
+        elseif ($user.OtherMails -and $user.OtherMails.Count -gt 0) {
+            $guestEmail = $user.OtherMails[0]
+        }
+        else {
+            # fallback cleanup from UPN
+            $guestEmail = $user.UserPrincipalName -replace "_", "." -replace "#EXT#",""
+        }
+        $guestDomain = if ($guestEmail -match "@") { $guestEmail.Substring($guestEmail.IndexOf("@")) } else { "" }
+        # --- Account State (Enabled/Disabled) ---
+        $accountState = if ($user.AccountEnabled -eq $true) { "Enabled" } else { "Disabled" }
+        # --- Format Created Date for output ---
+        $createdDateFormatted = if ($user.CreatedDateTime) {
+            $user.CreatedDateTime.ToString("yyyy-MM-dd HH:mm:ss")
+        } else {
+            "Unknown"
+        }
+        # --- Output object ---
+        [PSCustomObject]@{
+            UserPrincipalName            = $user.UserPrincipalName
+            GuestEmail                   = $guestEmail
+            LastInteractive              = $lastInteractive
+            LastNonInteractive           = $lastNonInteractive
+            InvitationPendingOver3Months = if ($user.ExternalUserState -eq 'PendingAcceptance' -and $user.CreatedDateTime -lt $threeMonthsAgo) { "Yes" } else { "No" }
+            InvitationSentDate           = $user.CreatedDateTime
+            CreatedDateTime              = $createdDateFormatted
+            UserState                    = $user.ExternalUserState
+            ManagerEmail                 = $managerEmail
+            SponsorEmails                = $sponsorEmails
+            AccountState                 = $accountState
+            GuestDomain                  = $guestDomain
+            UserId                       = $user.Id
+            CurrentAccountEnabled        = $user.AccountEnabled
+        }
+    }
+}
+
+# --- 4. Identify users to disable ---
+Write-Output "`n--- Identifying users to disable ---"
+
+# Inactive Guest Users (6+ months)
+$inactiveGuestUsers = $GuestUsersWithSignInActivity | Where-Object {
+    $_.AccountState -eq "Enabled" -and
+    $_.UserState -eq "Accepted" -and
+    $_.LastInteractive -ne $null -and
+    $_.LastInteractive -lt $sixMonthsAgo
+}
+
+# Pending Guest Invitations (3+ months old)
+$pendingGuestInvitations = $GuestUsersWithSignInActivity | Where-Object {
+    $_.AccountState -eq "Enabled" -and
+    $_.UserState -eq "PendingAcceptance" -and
+    $_.InvitationSentDate -lt $threeMonthsAgo
+}
+
+# Never Logged In Users (Enabled/Accepted/No activity & >3 months old)
+$neverLoggedInUsers = $GuestUsersWithSignInActivity | Where-Object {
+    $_.AccountState -eq "Enabled" -and
+    $_.UserState -eq "Accepted" -and
+    $_.LastInteractive -eq $null -and
+    $_.LastNonInteractive -eq $null -and
+    $_.InvitationSentDate -lt $threeMonthsAgo
+}
+
+# Combine all users to disable (remove duplicates by UserId)
+$usersToDisable = @()
+$userIdsProcessed = @{}
+
+foreach ($user in ($inactiveGuestUsers + $pendingGuestInvitations + $neverLoggedInUsers)) {
+    if (-not $userIdsProcessed.ContainsKey($user.UserId)) {
+        $usersToDisable += $user
+        $userIdsProcessed[$user.UserId] = $true
+    }
+}
+
+# --- 5. Disable users ---
+Write-Output "`n--- Disabling users ---"
+$disabledUsers = @()
+$failedDisables = @()
+
+if ($usersToDisable.Count -gt 0) {
+    Write-Output "Found $($usersToDisable.Count) users to disable"
+    
+    foreach ($user in $usersToDisable) {
+        try {
+            Write-Output "Disabling user: $($user.UserPrincipalName) (ID: $($user.UserId))"
+            
+            # Disable the user account
+            Update-MgUser -UserId $user.UserId -AccountEnabled:$false
+            
+            $disabledUsers += [PSCustomObject]@{
+                UserPrincipalName = $user.UserPrincipalName
+                GuestEmail = $user.GuestEmail
+                UserState = $user.UserState
+                Reason = if ($user.UserState -eq 'PendingAcceptance') { "Pending invitation > 3 months" } 
+                        elseif ($null -eq $user.LastInteractive -and $null -eq $user.LastNonInteractive) { "Never logged in" }
+                        else { "Inactive > 6 months" }
+                DisabledDate = Get-Date
+            }
+            
+            Write-Output "Successfully disabled: $($user.UserPrincipalName)"
+        }
+        catch {
+            $errorMsg = $_.Exception.Message
+            Write-Warning "Failed to disable user $($user.UserPrincipalName): $errorMsg"
+            $failedDisables += [PSCustomObject]@{
+                UserPrincipalName = $user.UserPrincipalName
+                GuestEmail = $user.GuestEmail
+                Error = $errorMsg
+            }
+        }
+    }
+} else {
+    Write-Output "No users found to disable"
+}
+
+# --- 6. Summary Counts ---
+Write-Output "`n--- Summary Counts ---"
+
+$inactiveGuestUsersCount = $inactiveGuestUsers.Count
+$pendingGuestInvitationsCount = $pendingGuestInvitations.Count
+$neverLoggedInUsersCount = $neverLoggedInUsers.Count
+
+$summaryObject = [PSCustomObject]@{
+    InactiveGuestUsers = $inactiveGuestUsersCount
+    PendingInvitations = $pendingGuestInvitationsCount
+    NeverLoggedInUsers = $neverLoggedInUsersCount
+    TotalProcessedGuests = $guestUsers.Count
+    TotalInactiveGuests = $GuestUsersWithSignInActivity.Count
+    UsersDisabled = $disabledUsers.Count
+    FailedDisables = $failedDisables.Count
+}
+
+# Display summary
+Write-Output "`n--- Disable Operation Summary ---"
+Write-Output "Total users identified for disabling: $($usersToDisable.Count)"
+Write-Output "Successfully disabled: $($disabledUsers.Count)"
+Write-Output "Failed to disable: $($failedDisables.Count)"
+
+if ($disabledUsers.Count -gt 0) {
+    Write-Output "`nDisabled users:"
+    $disabledUsers | Format-Table UserPrincipalName, GuestEmail, Reason, DisabledDate -AutoSize
+}
+
+if ($failedDisables.Count -gt 0) {
+    Write-Output "`nFailed disables:"
+    $failedDisables | Format-Table UserPrincipalName, GuestEmail, Error -AutoSize
+}
+
+# This object will be available in Azure Automation output
+$summaryObject
